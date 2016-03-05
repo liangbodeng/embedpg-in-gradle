@@ -1,0 +1,56 @@
+ext {
+    pg = null
+    pgTout = null
+    pgTerr = null
+}
+
+task startPg << {
+    println 'Starting embedded postgresql ..'
+
+    def pgOut = new ByteArrayOutputStream()
+    pg = "groovy embedpg.groovy".execute()
+    pgTout = pg.consumeProcessOutputStream(pgOut)
+    pgTerr = pg.consumeProcessErrorStream(pgOut)
+
+    def maxWait = 30
+    while (!pgOut.toString().contains("EMBED-PG-STARTED")) {
+        sleep 1000
+        --maxWait
+        if (maxWait <= 0) {
+            println pgOut.toString()
+            throw new GradleException( "Unable to start embedded postgresql in time")
+        }
+    }
+
+    pgOut.toString().readLines()[-3..-1].each { println it }
+    println "Embedded posgresql started in ${30-maxWait} seconds"
+}
+
+task stopPg << {
+    if (pg) {
+        try {
+            pg.out.write("EXIT\n".getBytes())
+            pg.out.flush()
+            pgTout.join(5000)
+            pgTerr.join(5000)
+            pg.closeStreams()
+        } catch (Exception e) {
+            println e.getMessage()
+        }
+        pg.waitForOrKill(5000)
+    }
+}
+
+task simulateTestSuccess << {
+    sleep 2000
+    println 'Test succeeded.'
+}
+simulateTestSuccess.dependsOn startPg
+simulateTestSuccess.finalizedBy stopPg
+
+task simulateTestFailure << {
+    sleep 2000
+    throw new GradleException('Test failed.')
+}
+simulateTestFailure.dependsOn startPg
+simulateTestFailure.finalizedBy stopPg
